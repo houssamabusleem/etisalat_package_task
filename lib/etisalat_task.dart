@@ -7,10 +7,19 @@ import 'package:flutter/material.dart';
 enum SelectedItemAnchor { START, MIDDLE, END }
 
 class HorizontalScroll extends StatefulWidget {
+  final Color background;
+
   final Widget Function(BuildContext, int) itemBuilder;
+
   final Curve curve;
 
   final int duration;
+
+  final double endOfListTolerance;
+
+  final bool focusOnItemTap;
+
+  final void Function(int) focusToItem;
 
   final EdgeInsetsGeometry margin;
 
@@ -18,9 +27,13 @@ class HorizontalScroll extends StatefulWidget {
 
   final double itemSize;
 
+  final Key key;
+
   final Key listViewKey;
 
   final void Function(int) onItemFocus;
+
+  final Function onReachEnd;
 
   final EdgeInsetsGeometry padding;
 
@@ -43,15 +56,21 @@ class HorizontalScroll extends StatefulWidget {
   final SelectedItemAnchor selectedItemAnchor;
 
   HorizontalScroll(
-      {@required this.itemBuilder,
+      {this.background,
+      @required this.itemBuilder,
       ScrollController listController,
       this.curve = Curves.ease,
       this.duration = 500,
+      this.endOfListTolerance,
+      this.focusOnItemTap = true,
+      this.focusToItem,
       this.itemCount,
       @required this.itemSize,
+      this.key,
       this.listViewKey,
       this.margin,
       this.onItemFocus,
+      this.onReachEnd,
       this.padding,
       this.reverse = false,
       this.updateOnScroll,
@@ -136,6 +155,12 @@ class HorizontalScrollState extends State<HorizontalScroll> {
       child = Opacity(child: child, opacity: calculateOpacity(index));
     }
 
+    if (widget.focusOnItemTap)
+      return GestureDetector(
+        onTap: () => focusToItem(index),
+        child: child,
+      );
+
     return child;
   }
 
@@ -152,8 +177,18 @@ class HorizontalScrollState extends State<HorizontalScroll> {
     return (cardIndex * itemSize);
   }
 
+  void focusToItem(int index) {
+    double targetLoc =
+        _calcCardLocation(index: index, itemSize: widget.itemSize);
+    _animateScroll(targetLoc);
+  }
+
   void focusToInitialPosition() {
     widget.listController.jumpTo((widget.initialIndex * widget.itemSize));
+  }
+
+  void _onReachEnd() {
+    if (widget.onReachEnd != null) widget.onReachEnd();
   }
 
   @override
@@ -190,43 +225,66 @@ class HorizontalScrollState extends State<HorizontalScroll> {
               break;
           }
 
-          return NotificationListener<ScrollNotification>(
-            onNotification: (ScrollNotification scrollInfo) {
-              if (scrollInfo is ScrollUpdateNotification) {
-                if (widget.dynamicItemSize ||
-                    widget.dynamicItemOpacity != null) {
-                  setState(() {
-                    currentPixel = scrollInfo.metrics.pixels;
-                  });
-                }
-
-                if (widget.updateOnScroll == true) {
+          return GestureDetector(
+            onTapDown: (_) {},
+            child: NotificationListener<ScrollNotification>(
+              onNotification: (ScrollNotification scrollInfo) {
+                if (scrollInfo is ScrollEndNotification) {
                   if (isInit) {
                     return true;
                   }
 
-                  if (widget.onItemFocus != null && isInit == false) {
-                    _calcCardLocation(
-                      pixel: scrollInfo.metrics.pixels,
-                      itemSize: widget.itemSize,
-                    );
+                  double tolerance =
+                      widget.endOfListTolerance ?? (widget.itemSize / 2);
+                  if (scrollInfo.metrics.pixels >=
+                      scrollInfo.metrics.maxScrollExtent - tolerance) {
+                    _onReachEnd();
+                  }
+
+                  double offset = _calcCardLocation(
+                    pixel: scrollInfo.metrics.pixels,
+                    itemSize: widget.itemSize,
+                  );
+
+                  if ((scrollInfo.metrics.pixels - offset).abs() > 0.01) {
+                    _animateScroll(offset);
+                  }
+                } else if (scrollInfo is ScrollUpdateNotification) {
+                  if (widget.dynamicItemSize ||
+                      widget.dynamicItemOpacity != null) {
+                    setState(() {
+                      currentPixel = scrollInfo.metrics.pixels;
+                    });
+                  }
+
+                  if (widget.updateOnScroll == true) {
+                    if (isInit) {
+                      return true;
+                    }
+
+                    if (widget.onItemFocus != null && isInit == false) {
+                      _calcCardLocation(
+                        pixel: scrollInfo.metrics.pixels,
+                        itemSize: widget.itemSize,
+                      );
+                    }
                   }
                 }
-              }
-              return true;
-            },
-            child: ListView.builder(
-              key: widget.listViewKey,
-              controller: widget.listController,
-              padding: widget.scrollDirection == Axis.horizontal
-                  ? EdgeInsets.symmetric(horizontal: _listPadding)
-                  : EdgeInsets.symmetric(
-                      vertical: _listPadding,
-                    ),
-              reverse: widget.reverse,
-              scrollDirection: widget.scrollDirection,
-              itemBuilder: _buildListItem,
-              itemCount: widget.itemCount,
+                return true;
+              },
+              child: ListView.builder(
+                key: widget.listViewKey,
+                controller: widget.listController,
+                padding: widget.scrollDirection == Axis.horizontal
+                    ? EdgeInsets.symmetric(horizontal: _listPadding)
+                    : EdgeInsets.symmetric(
+                        vertical: _listPadding,
+                      ),
+                reverse: widget.reverse,
+                scrollDirection: widget.scrollDirection,
+                itemBuilder: _buildListItem,
+                itemCount: widget.itemCount,
+              ),
             ),
           );
         },
